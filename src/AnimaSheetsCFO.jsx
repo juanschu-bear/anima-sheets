@@ -1810,7 +1810,7 @@ function App() {
   const [dark, setDark] = useState(false);
   const [tab, setTab] = useState("sheet");
   const [mobileNav, setMobileNav] = useState(false);
-  useEffect(() => { setLangGlobal(lang); }, [lang]);
+  useEffect(() => { setLang(lang); }, [lang]);
   useEffect(() => { document.documentElement.classList.toggle("as-dark", dark); }, [dark]);
 
   const tabs = [
