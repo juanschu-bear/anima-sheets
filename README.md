@@ -12,15 +12,18 @@ npm run build        # production build to ./dist
 npm run preview      # preview the production build
 ```
 
-## Optional live CFO sync
+## Optional live CFO sync (Anima stack)
 
-To render live receipt rows coming from the WhatsAnima CFO ingest pipeline, set:
+For live CFO rows from WhatsAnima -> Anima Drive, configure on Vercel:
 
 ```bash
-VITE_CFO_SHEET_ID=your_google_sheet_id
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+# optional, defaults to Jordan owner id
+CFO_OWNER_ID=77ad10a6-1d73-4201-9e81-e6be996d130a
 ```
 
-The app reads the `Transactions` tab via CSV export URL. If not configured (or inaccessible), the UI falls back to demo-only mode.
+The frontend loads `/api/cfo-feed`, which reads `cfo_transactions` directly from Supabase.
 
 ## Project structure
 

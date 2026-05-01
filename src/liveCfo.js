@@ -1,45 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 
-function parseCsv(text) {
-  const rows = [];
-  let cell = "";
-  let row = [];
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (inQuotes) {
-      if (ch === '"' && next === '"') {
-        cell += '"';
-        i += 1;
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        cell += ch;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ",") {
-      row.push(cell);
-      cell = "";
-    } else if (ch === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else if (ch !== "\r") {
-      cell += ch;
-    }
-  }
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
-  }
-  return rows;
-}
-
 function asNumber(value) {
   if (!value) return null;
   const normalized = String(value).replace(/[^\d,.-]/g, "").replace(",", ".");
@@ -59,49 +19,36 @@ function labelCategory(raw) {
     .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-function sheetCsvUrl(sheetId) {
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Transactions`;
-}
-
 export function useLiveCfoFeed() {
-  const sheetId = import.meta.env.VITE_CFO_SHEET_ID;
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let disposed = false;
-    if (!sheetId) return;
     setLoading(true);
     setError(null);
-    fetch(sheetCsvUrl(sheetId))
+    fetch("/api/cfo-feed")
       .then(async (res) => {
-        if (!res.ok) throw new Error(`sheet fetch failed (${res.status})`);
-        return res.text();
+        if (!res.ok) throw new Error(`cfo feed failed (${res.status})`);
+        return res.json();
       })
-      .then((csvText) => {
+      .then((payload) => {
         if (disposed) return;
-        const parsed = parseCsv(csvText);
-        const records = parsed
+        const records = ((payload && payload.rows) || [])
           .map((r) => ({
-            transactionDate: r[0] || null,
-            merchant: r[1] || null,
-            totalAmount: asNumber(r[2]),
-            vatAmount: asNumber(r[3]),
-            category: normalizeCategory(r[4]),
-            isBusinessExpense: (r[5] || "").toLowerCase() === "ja",
-            taxRelevant: (r[6] || "").toLowerCase() === "ja",
-            paymentMethod: r[7] || null,
-            freeTags: r[8] ? String(r[8]).split(",").map((t) => t.trim()).filter(Boolean) : [],
-            driveUrl: r[9] || null,
-            whatsanimaUrl: r[10] || null,
+            transactionDate: r.transaction_date || null,
+            merchant: r.merchant || null,
+            totalAmount: asNumber(r.total_amount),
+            vatAmount: asNumber(r.vat_amount),
+            category: normalizeCategory(r.category),
+            isBusinessExpense: Boolean(r.is_business_expense),
+            taxRelevant: Boolean(r.tax_relevant),
+            paymentMethod: r.payment_method || null,
+            freeTags: Array.isArray(r.free_tags) ? r.free_tags.filter(Boolean) : [],
+            driveUrl: r.drive_url || null,
+            whatsanimaUrl: r.conversation_id ? `/chat/${r.conversation_id}` : null,
           }))
-          .filter((x) => {
-            const merchantLower = String(x.merchant || "").trim().toLowerCase();
-            const categoryLower = String(x.category || "").trim().toLowerCase();
-            if (merchantLower === "merchant" && categoryLower === "category") return false;
-            return true;
-          })
           .filter((x) => x.merchant || x.totalAmount != null);
         setRows(records);
       })
@@ -115,7 +62,7 @@ export function useLiveCfoFeed() {
     return () => {
       disposed = true;
     };
-  }, [sheetId]);
+  }, []);
 
   const summary = useMemo(() => {
     if (!rows.length) {
@@ -148,7 +95,7 @@ export function useLiveCfoFeed() {
   }, [rows]);
 
   return {
-    enabled: Boolean(sheetId),
+    enabled: true,
     loading,
     error,
     rows,
