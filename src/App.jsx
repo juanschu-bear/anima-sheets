@@ -52,7 +52,7 @@ function useTheme() {
 export default function App() {
   useLang();
   const [dark, setDark] = useTheme();
-  const { user, signIn, signOut } = useAuth();
+  const { user, signIn, signOut, loading } = useAuth();
   const [monthIdx, setMonthIdx] = useState(MONTHS.length - 1);
   const [tab, setTab] = useState("dashboard");
   const [sortKey, setSortKey] = useState("amount");
@@ -73,6 +73,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [user]);
 
+  if (loading) return null;
   if (!user) return <AuthGate onSignIn={signIn} />;
 
   const month = MONTHS[monthIdx];
@@ -118,6 +119,7 @@ export default function App() {
             liveCfo={liveCfo}
           />
         )}
+        {tab === "intelligence" && <ViewShell title="CFO Intelligence" subtitle="Behavior, risk and actionable insights"><CfoIntelligenceView liveCfo={liveCfo} /></ViewShell>}
         {tab === "spreadsheet" && <ViewShell title={t("tab_spreadsheet")} subtitle={t("app_tagline")}><Spreadsheet /></ViewShell>}
         {tab === "import"      && <ViewShell title={t("tab_import")}      subtitle={t("app_tagline")}><ImportView /></ViewShell>}
       </main>
@@ -228,6 +230,7 @@ function LiveCfoPanel({ liveCfo }) {
 function Header({ tab, setTab, dark, setDark, user, onSignOut }) {
   const tabs = [
     { key: "dashboard",   label: t("tab_dashboard") },
+    { key: "intelligence", label: "CFO Intelligence" },
     { key: "spreadsheet", label: t("tab_spreadsheet") },
     { key: "import",      label: t("tab_import") },
   ];
@@ -256,6 +259,65 @@ function Header({ tab, setTab, dark, setDark, user, onSignOut }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function CfoIntelligenceView({ liveCfo }) {
+  const rows = liveCfo?.rows || [];
+  const spend30 = Number(liveCfo?.summary?.totalSpend30d || 0);
+  const intensity = spend30 > 8000 ? "High" : spend30 > 3000 ? "Medium" : "Low";
+  const top = liveCfo?.summary?.topCategories?.[0];
+  const recent = rows.slice(-10).reverse();
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <Card title="Financial Behavior" subtitle="Live-derived profile">
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center justify-between"><span className="text-[var(--muted)]">Spend intensity</span><span className="font-semibold">{intensity}</span></div>
+          <div className="flex items-center justify-between"><span className="text-[var(--muted)]">30d spend</span><span className="font-semibold tabular-nums">{euro(spend30, { decimals: 2 })}</span></div>
+          <div className="flex items-center justify-between"><span className="text-[var(--muted)]">Top category</span><span className="font-semibold">{top?.label || "n/a"}</span></div>
+        </div>
+      </Card>
+      <Card title="Signals" subtitle="Auto-detected from recent receipts">
+        <ul className="space-y-2 text-sm">
+          <li className="rounded-lg border border-[var(--line)] p-2">Dependency risk: {top && top.amount > spend30 * 0.55 ? "Elevated" : "Normal"}</li>
+          <li className="rounded-lg border border-[var(--line)] p-2">Data quality: {rows.some((r) => !r.merchant || !r.transactionDate) ? "Needs cleanup" : "Healthy"}</li>
+          <li className="rounded-lg border border-[var(--line)] p-2">Flow continuity: {rows.length >= 5 ? "Consistent" : "Insufficient history"}</li>
+        </ul>
+      </Card>
+      <Card title="Recommendations" subtitle="Next best CFO actions">
+        <ol className="space-y-2 text-sm list-decimal pl-4">
+          <li>Review receipts missing clear merchant/date and correct metadata.</li>
+          <li>Set spend cap alerts for top category if concentration stays above 55%.</li>
+          <li>Keep captioning strategic receipts so Jordan can respond contextually.</li>
+        </ol>
+      </Card>
+      <div className="lg:col-span-3">
+        <Card title="Recent CFO Events" subtitle="Last 10 synchronized transactions">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-[var(--muted)]">
+                  <th className="text-left py-2">Date</th>
+                  <th className="text-left py-2">Merchant</th>
+                  <th className="text-left py-2">Category</th>
+                  <th className="text-right py-2">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((r, idx) => (
+                  <tr key={`${r.transactionDate || "d"}-${idx}`} className="border-b border-[var(--line)]/50">
+                    <td className="py-2">{r.transactionDate || "-"}</td>
+                    <td className="py-2">{r.merchant || "-"}</td>
+                    <td className="py-2">{(r.category || "other").replace(/_/g, " ")}</td>
+                    <td className="py-2 text-right tabular-nums">{euro(Number(r.totalAmount || 0), { decimals: 2 })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </div>
   );
 }
 
