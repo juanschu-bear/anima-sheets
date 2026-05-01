@@ -12,6 +12,16 @@ npm run build        # production build to ./dist
 npm run preview      # preview the production build
 ```
 
+## Optional live CFO sync
+
+To render live receipt rows coming from the WhatsAnima CFO ingest pipeline, set:
+
+```bash
+VITE_CFO_SHEET_ID=your_google_sheet_id
+```
+
+The app reads the `Transactions` tab via CSV export URL. If not configured (or inaccessible), the UI falls back to demo-only mode.
+
 ## Project structure
 
 ```

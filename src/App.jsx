@@ -13,6 +13,7 @@ import { useAuth, AuthGate, ProfileMenu } from "./Auth.jsx";
 import { Spreadsheet } from "./Spreadsheet.jsx";
 import { ImportView } from "./Import.jsx";
 import { AskButton, AskModal } from "./Nlq.jsx";
+import { useLiveCfoFeed } from "./liveCfo.js";
 
 function useCountUp(target, { duration = 1200, decimals = 0, trigger = 0 } = {}) {
   const [value, setValue] = useState(0);
@@ -58,6 +59,7 @@ export default function App() {
   const [sortDir, setSortDir] = useState("desc");
   const [activePie, setActivePie] = useState(null);
   const [askOpen, setAskOpen] = useState(false);
+  const liveCfo = useLiveCfoFeed();
 
   useEffect(() => {
     if (!user) return;
@@ -113,6 +115,7 @@ export default function App() {
             activePie={activePie} setActivePie={setActivePie}
             sortedCats={sortedCats} sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort}
             user={user}
+            liveCfo={liveCfo}
           />
         )}
         {tab === "spreadsheet" && <ViewShell title={t("tab_spreadsheet")} subtitle={t("app_tagline")}><Spreadsheet /></ViewShell>}
@@ -145,11 +148,12 @@ function ViewShell({ title, subtitle, children }) {
   );
 }
 
-function DashboardView({ monthIdx, setMonthIdx, month, monthLabel, headlineIncome, headlineExpenses, headlineNet, expenseCats, totalExpenseCat, activePie, setActivePie, sortedCats, sortKey, sortDir, toggleSort, user }) {
+function DashboardView({ monthIdx, setMonthIdx, month, monthLabel, headlineIncome, headlineExpenses, headlineNet, expenseCats, totalExpenseCat, activePie, setActivePie, sortedCats, sortKey, sortDir, toggleSort, user, liveCfo }) {
   const transactions = LEDGER.slice(0, 5).map(row => ({ date: row.date, desc: tRow(row).desc, amount: row.amount, cat: row.cat }));
   return (
     <>
       <TitleRow monthIdx={monthIdx} setMonthIdx={setMonthIdx} monthLabel={monthLabel} user={user} />
+      <LiveCfoPanel liveCfo={liveCfo} />
       <KpiGrid income={headlineIncome} expenses={headlineExpenses} net={headlineNet} trigger={monthIdx} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
         <div className="lg:col-span-2 anim-in" style={{ animationDelay: "120ms" }}>
@@ -168,6 +172,56 @@ function DashboardView({ monthIdx, setMonthIdx, month, monthLabel, headlineIncom
         </div>
       </div>
     </>
+  );
+}
+
+function LiveCfoPanel({ liveCfo }) {
+  if (!liveCfo?.enabled) {
+    return null;
+  }
+  const recent = (liveCfo.rows || []).slice(-6).reverse();
+  return (
+    <Card title="Live CFO Feed" subtitle="WhatsAnima -> Anima Drive -> Anima Sheets sync">
+      {liveCfo.loading ? (
+        <div className="text-sm text-[var(--muted)]">Loading latest transactions from CFO sheet...</div>
+      ) : liveCfo.error ? (
+        <div className="text-sm text-[var(--neg)]">Live feed unavailable: {liveCfo.error}</div>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface2)] p-3">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Synced Receipts</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums">{liveCfo.summary.totalRows}</div>
+            </div>
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface2)] p-3">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Spend 30d</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums">{euro(liveCfo.summary.totalSpend30d || 0, { decimals: 2 })}</div>
+            </div>
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface2)] p-3">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Top Category</div>
+              <div className="mt-1 text-base font-semibold truncate">{liveCfo.summary.topCategories?.[0]?.label || "n/a"}</div>
+            </div>
+          </div>
+          <ul className="divide-y divide-[var(--line)]">
+            {recent.length === 0 ? (
+              <li className="py-2 text-sm text-[var(--muted)]">No live rows yet.</li>
+            ) : (
+              recent.map((row, idx) => (
+                <li key={`${row.transactionDate || "d"}-${row.merchant || "m"}-${idx}`} className="py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{row.merchant || "Unknown merchant"}</div>
+                    <div className="text-xs text-[var(--muted)] truncate">
+                      {(row.transactionDate || "Unknown date")} · {(row.category || "other").replace(/_/g, " ")}
+                    </div>
+                  </div>
+                  <div className="text-sm font-semibold tabular-nums">{euro(Number(row.totalAmount || 0), { decimals: 2 })}</div>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </Card>
   );
 }
 
