@@ -18,12 +18,21 @@ For live CFO rows from WhatsAnima -> Anima Drive, configure on Vercel:
 
 ```bash
 SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 # optional, defaults to Jordan owner id
 CFO_OWNER_ID=77ad10a6-1d73-4201-9e81-e6be996d130a
 ```
 
-The frontend loads `/api/cfo-feed`, which reads `cfo_transactions` directly from Supabase.
+Frontend env aliases accepted:
+
+```bash
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
+
+The frontend loads `/api/cfo-feed`, authenticates with the current Supabase session, and reads `cfo_transactions` from Supabase.  
+For service-to-service calls, `x-anima-api-key` is supported (scope: `sheets:read`).
 
 ## Project structure
 

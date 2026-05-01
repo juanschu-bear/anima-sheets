@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "./supabase";
 
 function asNumber(value) {
   if (!value) return null;
@@ -28,7 +29,14 @@ export function useLiveCfoFeed() {
     let disposed = false;
     setLoading(true);
     setError(null);
-    fetch("/api/cfo-feed")
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        const token = data?.session?.access_token || "";
+        return fetch("/api/cfo-feed", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      })
       .then(async (res) => {
         if (!res.ok) throw new Error(`cfo feed failed (${res.status})`);
         return res.json();
