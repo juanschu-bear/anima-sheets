@@ -36,6 +36,11 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
+    const watchdog = window.setTimeout(() => {
+      if (alive) setLoading(false);
+    }, 8000);
+
     (async () => {
       try {
         await consumeSsoFromUrl();
@@ -44,18 +49,24 @@ export function useAuth() {
           return;
         }
         const { data } = await supabase.auth.getSession();
+        if (!alive) return;
         setSession(data.session || null);
         setUser(mapUser(data.session?.user || null));
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!alive) return;
       setSession(nextSession || null);
       setUser(mapUser(nextSession?.user || null));
       setLoading(false);
     });
-    return () => data.subscription.unsubscribe();
+    return () => {
+      alive = false;
+      window.clearTimeout(watchdog);
+      data.subscription.unsubscribe();
+    };
   }, [configured]);
 
   const signIn = useCallback(async ({ email, password, mode = "signin", name }) => {

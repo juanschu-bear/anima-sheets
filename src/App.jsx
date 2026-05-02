@@ -73,7 +73,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [user]);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)] flex items-center justify-center">
+        <div className="text-sm text-[var(--muted)]">Loading Anima Sheets...</div>
+      </div>
+    );
+  }
   if (!user) return <AuthGate onSignIn={signIn} />;
 
   const month = MONTHS[monthIdx];
