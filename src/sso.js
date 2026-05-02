@@ -9,9 +9,12 @@ function b64UrlDecode(input) {
 export async function consumeSsoFromUrl() {
   try {
     const hash = window.location.hash || "";
-    const m = hash.match(/(?:^#|[?&])sso=([^&]+)/);
-    if (!m?.[1]) return;
-    const payload = JSON.parse(b64UrlDecode(decodeURIComponent(m[1])));
+    const hashMatch = hash.match(/(?:^#|[?&])sso=([^&]+)/);
+    const search = window.location.search || "";
+    const queryMatch = search.match(/(?:^\?|&)sso=([^&]+)/);
+    const token = hashMatch?.[1] || queryMatch?.[1];
+    if (!token) return;
+    const payload = JSON.parse(b64UrlDecode(decodeURIComponent(token)));
     if (!payload?.access_token || !payload?.refresh_token) return;
     if (!payload?.exp || Date.now() > payload.exp) return;
     await supabase.auth.setSession({
@@ -21,9 +24,13 @@ export async function consumeSsoFromUrl() {
   } catch (e) {
     console.warn("[sso] consume failed", e);
   } finally {
-    if (window.location.hash.includes("sso=")) {
-      history.replaceState({}, document.title, window.location.pathname + window.location.search);
+    const url = new URL(window.location.href);
+    const hadSsoInHash = url.hash.includes("sso=");
+    const hadSsoInQuery = url.searchParams.has("sso");
+    if (hadSsoInQuery) url.searchParams.delete("sso");
+    if (hadSsoInHash) url.hash = "";
+    if (hadSsoInHash || hadSsoInQuery) {
+      history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
     }
   }
 }
-

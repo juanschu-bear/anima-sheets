@@ -36,16 +36,20 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    consumeSsoFromUrl().catch(() => undefined);
-    if (!configured) {
-      setLoading(false);
-      return;
-    }
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session || null);
-      setUser(mapUser(data.session?.user || null));
-      setLoading(false);
-    });
+    (async () => {
+      try {
+        await consumeSsoFromUrl();
+        if (!configured) {
+          setLoading(false);
+          return;
+        }
+        const { data } = await supabase.auth.getSession();
+        setSession(data.session || null);
+        setUser(mapUser(data.session?.user || null));
+      } finally {
+        setLoading(false);
+      }
+    })();
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession || null);
       setUser(mapUser(nextSession?.user || null));
