@@ -49,6 +49,41 @@ function useTheme() {
   return [dark, setDark];
 }
 
+function buildLiveDashboardModel(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const monthMap = new Map();
+  const catByMonth = new Map();
+
+  for (const row of rows) {
+    const dateRaw = String(row.transactionDate || "").trim();
+    if (!dateRaw) continue;
+    const key = dateRaw.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(key)) continue;
+    if (!monthMap.has(key)) monthMap.set(key, { key, income: 0, expenses: 0 });
+    if (!catByMonth.has(key)) catByMonth.set(key, new Map());
+
+    const amount = Number(row.totalAmount || 0);
+    const monthAgg = monthMap.get(key);
+    if (amount >= 0) monthAgg.expenses += amount;
+    else monthAgg.income += Math.abs(amount);
+
+    const catKey = String(row.category || "other").trim() || "other";
+    const catMap = catByMonth.get(key);
+    catMap.set(catKey, (catMap.get(catKey) || 0) + Math.max(0, amount));
+  }
+
+  const months = [...monthMap.values()].sort((a, b) => a.key.localeCompare(b.key)).slice(-6);
+  const categoriesByMonth = {};
+  for (const month of months) {
+    const catMap = catByMonth.get(month.key) || new Map();
+    categoriesByMonth[month.key] = [...catMap.entries()]
+      .map(([key, amount]) => ({ key, amount, label: catLabel(key), color: catColor(key) }))
+      .filter((c) => c.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+  }
+  return { months, categoriesByMonth };
+}
+
 export default function App() {
   useLang();
   const [dark, setDark] = useTheme();
@@ -73,13 +108,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [user]);
 
-  const month = MONTHS[monthIdx];
+  const liveModel = useMemo(() => buildLiveDashboardModel(liveCfo.rows), [liveCfo.rows]);
+  const monthsData = liveModel?.months?.length ? liveModel.months : MONTHS;
+  const safeMonthIdx = Math.min(monthIdx, Math.max(0, monthsData.length - 1));
+  const month = monthsData[safeMonthIdx];
   const monthLabel = localizedMonthLabel(month.key);
   const net = month.income - month.expenses;
 
-  const expenseCats = CATEGORY_DEFS
-    .filter(c => c.kind === "expense" && c.amount > 0)
-    .map(c => ({ ...c, label: catLabel(c.key), color: catColor(c.key) }));
+  const expenseCats = liveModel?.categoriesByMonth?.[month.key]?.length
+    ? liveModel.categoriesByMonth[month.key]
+    : CATEGORY_DEFS
+        .filter(c => c.kind === "expense" && c.amount > 0)
+        .map(c => ({ ...c, label: catLabel(c.key), color: catColor(c.key) }));
 
   const totalExpenseCat = expenseCats.reduce((s, c) => s + c.amount, 0);
 
@@ -91,6 +131,12 @@ export default function App() {
     });
     return arr;
   }, [sortKey, sortDir, expenseCats.length, getLang()]);
+
+  useEffect(() => {
+    if (monthIdx > monthsData.length - 1) {
+      setMonthIdx(Math.max(0, monthsData.length - 1));
+    }
+  }, [monthIdx, monthsData.length]);
 
   if (loading) {
     return (
@@ -116,7 +162,7 @@ export default function App() {
       <main className="relative max-w-[1400px] mx-auto px-6 md:px-10 pb-24">
         {tab === "dashboard" && (
           <DashboardView
-            monthIdx={monthIdx} setMonthIdx={setMonthIdx} month={month} monthLabel={monthLabel}
+            monthIdx={safeMonthIdx} setMonthIdx={setMonthIdx} months={monthsData} month={month} monthLabel={monthLabel}
             headlineIncome={month.income} headlineExpenses={month.expenses} headlineNet={net}
             expenseCats={expenseCats} totalExpenseCat={totalExpenseCat}
             activePie={activePie} setActivePie={setActivePie}
@@ -131,7 +177,7 @@ export default function App() {
       </main>
       <Footer stamp={nowStr} />
       <AskButton onClick={() => setAskOpen(true)} />
-      {askOpen && <AskModal onClose={() => setAskOpen(false)} />}
+      {askOpen && <AskModal onClose={() => setAskOpen(false)} rows={liveCfo.rows || []} />}
     </div>
   );
 }
@@ -156,16 +202,23 @@ function ViewShell({ title, subtitle, children }) {
   );
 }
 
-function DashboardView({ monthIdx, setMonthIdx, month, monthLabel, headlineIncome, headlineExpenses, headlineNet, expenseCats, totalExpenseCat, activePie, setActivePie, sortedCats, sortKey, sortDir, toggleSort, user, liveCfo }) {
-  const transactions = LEDGER.slice(0, 5).map(row => ({ date: row.date, desc: tRow(row).desc, amount: row.amount, cat: row.cat }));
+function DashboardView({ monthIdx, setMonthIdx, months, month, monthLabel, headlineIncome, headlineExpenses, headlineNet, expenseCats, totalExpenseCat, activePie, setActivePie, sortedCats, sortKey, sortDir, toggleSort, user, liveCfo }) {
+  const transactions = (liveCfo.rows || []).length
+    ? liveCfo.rows.slice(-5).reverse().map((row) => ({
+        date: row.transactionDate || "",
+        desc: row.merchant || "Transaction",
+        amount: Number(row.totalAmount || 0) * -1,
+        cat: row.category || "other",
+      }))
+    : LEDGER.slice(0, 5).map(row => ({ date: row.date, desc: tRow(row).desc, amount: row.amount, cat: row.cat }));
   return (
     <>
-      <TitleRow monthIdx={monthIdx} setMonthIdx={setMonthIdx} monthLabel={monthLabel} user={user} />
+      <TitleRow monthIdx={monthIdx} setMonthIdx={setMonthIdx} months={months} monthLabel={monthLabel} user={user} />
       <LiveCfoPanel liveCfo={liveCfo} />
-      <KpiGrid income={headlineIncome} expenses={headlineExpenses} net={headlineNet} trigger={monthIdx} />
+      <KpiGrid income={headlineIncome} expenses={headlineExpenses} net={headlineNet} trigger={monthIdx} months={months} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
         <div className="lg:col-span-2 anim-in" style={{ animationDelay: "120ms" }}>
-          <TrendChart months={MONTHS} activeIdx={monthIdx} onSelect={setMonthIdx} trigger={monthIdx} />
+          <TrendChart months={months} activeIdx={monthIdx} onSelect={setMonthIdx} trigger={monthIdx} />
         </div>
         <div className="anim-in" style={{ animationDelay: "200ms" }}>
           <CategoryDonut data={expenseCats} total={totalExpenseCat} active={activePie} setActive={setActivePie} trigger={monthIdx} />
@@ -380,7 +433,7 @@ function ThemeToggle({ dark, setDark }) {
   );
 }
 
-function TitleRow({ monthIdx, setMonthIdx, monthLabel, user }) {
+function TitleRow({ monthIdx, setMonthIdx, months, monthLabel, user }) {
   const hour = new Date().getHours();
   const gKey = hour < 12 ? "greet_morning_x" : hour < 18 ? "greet_afternoon_x" : "greet_evening_x";
   const firstName = user ? String(user.name).split(/\s+/)[0] : "";
@@ -392,21 +445,21 @@ function TitleRow({ monthIdx, setMonthIdx, monthLabel, user }) {
         <p className="text-[var(--muted)] mt-2 text-[15px] max-w-xl">{t("dash_sub", { m: monthLabel })}</p>
       </div>
       <div className="flex items-center gap-3">
-        <MonthSelector monthIdx={monthIdx} setMonthIdx={setMonthIdx} />
+        <MonthSelector monthIdx={monthIdx} setMonthIdx={setMonthIdx} months={months} />
         <QuickActions />
       </div>
     </div>
   );
 }
 
-function MonthSelector({ monthIdx, setMonthIdx }) {
-  const canPrev = monthIdx > 0, canNext = monthIdx < MONTHS.length - 1;
+function MonthSelector({ monthIdx, setMonthIdx, months }) {
+  const canPrev = monthIdx > 0, canNext = monthIdx < months.length - 1;
   return (
     <div className="flex items-center gap-1 p-1 rounded-full border border-[var(--line)] bg-[var(--surface)]">
       <button disabled={!canPrev} onClick={() => canPrev && setMonthIdx(monthIdx - 1)} className="h-8 w-8 grid place-items-center rounded-full hover:bg-[var(--surface2)] disabled:opacity-30 disabled:pointer-events-none transition-colors" aria-label={t("prev_month")}>
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M15 6l-6 6 6 6"/></svg>
       </button>
-      <div className="px-3 text-[13px] font-medium tabular-nums min-w-[96px] text-center">{localizedMonthLabel(MONTHS[monthIdx].key)}</div>
+      <div className="px-3 text-[13px] font-medium tabular-nums min-w-[96px] text-center">{localizedMonthLabel(months[monthIdx].key)}</div>
       <button disabled={!canNext} onClick={() => canNext && setMonthIdx(monthIdx + 1)} className="h-8 w-8 grid place-items-center rounded-full hover:bg-[var(--surface2)] disabled:opacity-30 disabled:pointer-events-none transition-colors" aria-label={t("next_month")}>
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M9 6l6 6-6 6"/></svg>
       </button>
@@ -429,12 +482,14 @@ function QuickActions() {
   );
 }
 
-function KpiGrid({ income, expenses, net, trigger }) {
+function KpiGrid({ income, expenses, net, trigger, months }) {
+  const safeIncome = Number(income || 0);
+  const margin = safeIncome > 0 ? Math.round((net / safeIncome) * 100) : 0;
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-      <KpiCard label={t("kpi_income")}   value={income}   trigger={trigger} accent="pos" delta="+4.6%" sub={t("kpi_vs_prev")} spark={MONTHS.map(m => m.income)} delay={0} />
-      <KpiCard label={t("kpi_expenses")} value={expenses} trigger={trigger} accent="neg" delta="+6.7%" sub={t("kpi_vs_prev")} spark={MONTHS.map(m => m.expenses)} delay={80} />
-      <KpiCard label={t("kpi_net")}      value={net}      trigger={trigger} accent="net" delta={net >= 0 ? t("kpi_profit") : t("kpi_loss")} sub={t("kpi_margin", { p: Math.round((net / income) * 100) })} spark={MONTHS.map(m => m.income - m.expenses)} highlight delay={160} />
+      <KpiCard label={t("kpi_income")}   value={income}   trigger={trigger} accent="pos" delta={t("kpi_vs_prev")} sub={t("kpi_vs_prev")} spark={months.map(m => m.income)} delay={0} />
+      <KpiCard label={t("kpi_expenses")} value={expenses} trigger={trigger} accent="neg" delta={t("kpi_vs_prev")} sub={t("kpi_vs_prev")} spark={months.map(m => m.expenses)} delay={80} />
+      <KpiCard label={t("kpi_net")}      value={net}      trigger={trigger} accent="net" delta={net >= 0 ? t("kpi_profit") : t("kpi_loss")} sub={t("kpi_margin", { p: margin })} spark={months.map(m => m.income - m.expenses)} highlight delay={160} />
     </div>
   );
 }

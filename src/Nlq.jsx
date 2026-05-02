@@ -6,7 +6,24 @@ import { catColor, catLabel } from "./data.js";
 import { tRow, tSheetName } from "./i18n.js";
 import { SHEETS_SEED } from "./data.js";
 
-function currentRows() {
+function currentRows(inputRows = null) {
+  if (Array.isArray(inputRows) && inputRows.length) {
+    return inputRows.map((r, idx) => {
+      const amount = Number(r.totalAmount || 0);
+      const normalized = Number.isFinite(amount) ? amount : 0;
+      return {
+        id: idx,
+        date: String(r.transactionDate || "").slice(0, 10),
+        desc: r.merchant || "Transaction",
+        counterparty: r.merchant || "",
+        cat: String(r.category || "other"),
+        amount: normalized >= 0 ? -Math.abs(normalized) : Math.abs(normalized),
+        status: "cleared",
+        sheetId: "main",
+        sheetName: "CFO Feed",
+      };
+    });
+  }
   try {
     const raw = localStorage.getItem("anima_sheets_state_v3");
     if (raw) {
@@ -87,6 +104,78 @@ Available category keys: einnahmen, ausgaben, gehaelter, software, marketing, mi
 Today is 2026-04-27.
 Output ONLY valid minified JSON with keys: intent, sheet, categories, direction, minAmount, maxAmount, dateFrom, dateTo, text, limit, sort {by,dir}, aggregate, groupBy, headline (in the original language).`;
 
+function inferMonthRange(question) {
+  const q = question.toLowerCase();
+  const monthMap = {
+    january: "01", januar: "01", enero: "01",
+    february: "02", februar: "02", febrero: "02",
+    march: "03", maerz: "03", märz: "03", marzo: "03",
+    april: "04", abril: "04",
+    may: "05", mai: "05", mayo: "05",
+    june: "06", juni: "06", junio: "06",
+    july: "07", juli: "07", julio: "07",
+    august: "08", augusto: "08",
+    september: "09", september: "09", septiembre: "09",
+    october: "10", oktober: "10", octubre: "10",
+    november: "11", noviembre: "11",
+    december: "12", dezember: "12", diciembre: "12",
+  };
+  const year = (q.match(/\b(20\d{2})\b/) || [])[1] || String(new Date().getFullYear());
+  for (const [name, mm] of Object.entries(monthMap)) {
+    if (!q.includes(name)) continue;
+    const nextMonth = String((Number(mm) % 12) + 1).padStart(2, "0");
+    const nextYear = mm === "12" ? String(Number(year) + 1) : year;
+    return { dateFrom: `${year}-${mm}-01`, dateTo: `${nextYear}-${nextMonth}-01` };
+  }
+  return {};
+}
+
+function inferCategories(question) {
+  const q = question.toLowerCase();
+  const map = {
+    software: ["software", "saas", "license", "lizenz", "licencia"],
+    versicherungen: ["insurance", "versicherung", "seguro"],
+    marketing: ["marketing", "ads", "werbung", "anuncio"],
+    reisekosten: ["travel", "reise", "viaje", "hotel", "flug", "train", "bahn", "tren"],
+    bewirtung: ["food", "meal", "restaurant", "döner", "comida"],
+    miete: ["rent", "miete", "alquiler"],
+    telekommunikation: ["telecom", "phone", "internet", "telekom"],
+    steuern: ["tax", "steuer", "impuesto"],
+    fahrzeugkosten: ["car", "vehicle", "auto", "fahrzeug"],
+  };
+  for (const [cat, words] of Object.entries(map)) {
+    if (words.some((w) => q.includes(w))) return [cat];
+  }
+  return [];
+}
+
+function interpretQuestion(question) {
+  const q = String(question || "").toLowerCase();
+  const amountMatch = q.match(/(?:over|above|über|mas de|más de)\s*(\d+[.,]?\d*)/);
+  const minAmount = amountMatch ? Number(amountMatch[1].replace(",", ".")) : null;
+  const wantsSum = /(how much|wie viel|cuánto|cuanto|total|sum)/.test(q);
+  const wantsTop = /(top|highest|größte|gr[oö]sste|mayor)/.test(q);
+  const direction = /(income|einnahmen|ingresos)/.test(q) ? "income" : "expense";
+  const { dateFrom, dateTo } = inferMonthRange(q);
+  const categories = inferCategories(q);
+  return {
+    intent: wantsTop ? "top-categories" : wantsSum ? "sum" : "filter",
+    sheet: "all",
+    categories,
+    direction,
+    minAmount,
+    maxAmount: null,
+    dateFrom: dateFrom || null,
+    dateTo: dateTo || null,
+    text: null,
+    limit: wantsTop ? 5 : 50,
+    sort: { by: "amount", dir: "desc" },
+    aggregate: true,
+    groupBy: wantsTop ? "category" : null,
+    headline: question,
+  };
+}
+
 function parseJsonLoose(txt) {
   if (!txt) return null;
   const m = txt.match(/\{[\s\S]*\}/);
@@ -95,13 +184,14 @@ function parseJsonLoose(txt) {
 }
 
 async function askClaude(question) {
-  if (!window.claude || !window.claude.complete) throw new Error("no-claude");
-  const resp = await window.claude.complete({
-    messages: [{ role: "user", content: SYSTEM_PROMPT + "\n\nQuestion: " + question }],
-  });
-  const parsed = parseJsonLoose(resp);
-  if (!parsed) throw new Error("parse-failed");
-  return parsed;
+  if (window.claude && window.claude.complete) {
+    const resp = await window.claude.complete({
+      messages: [{ role: "user", content: SYSTEM_PROMPT + "\n\nQuestion: " + question }],
+    });
+    const parsed = parseJsonLoose(resp);
+    if (parsed) return parsed;
+  }
+  return interpretQuestion(question);
 }
 
 function toCsv(rows) {
@@ -146,15 +236,13 @@ export function AskButton({ onClick }) {
   );
 }
 
-export function AskModal({ onClose }) {
+export function AskModal({ onClose, rows = [] }) {
   useLang();
   const inputRef = useRef(null);
   const [q, setQ] = useState("");
   const [state, setState] = useState("idle");
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
-  const hasClaude = typeof window !== "undefined" && window.claude && window.claude.complete;
-
   useEffect(() => { inputRef.current && inputRef.current.focus(); }, []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -168,9 +256,10 @@ export function AskModal({ onClose }) {
     setQ(question); setErr(""); setResult(null); setState("thinking");
     try {
       const spec = await askClaude(question);
-      const rows = applyFilter(spec, currentRows());
-      const agg = aggregate(spec, rows);
-      setResult({ spec, rows, agg, headline: spec.headline || "", question });
+      const ledgerRows = currentRows(rows);
+      const filteredRows = applyFilter(spec, ledgerRows);
+      const agg = aggregate(spec, filteredRows);
+      setResult({ spec, rows: filteredRows, agg, headline: spec.headline || "", question });
       setState("done");
     } catch (e) {
       setErr(String(e && e.message || e));
@@ -188,10 +277,10 @@ export function AskModal({ onClose }) {
           <svg viewBox="0 0 24 24" className="h-5 w-5 text-[var(--muted)] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2l1.9 5.9L20 10l-6.1 2.1L12 18l-1.9-5.9L4 10l6.1-2.1z"/>
           </svg>
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} disabled={!hasClaude}
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)}
             placeholder={t("nlq_placeholder")}
-            className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-[var(--muted)] disabled:opacity-60" />
-          <button type="submit" disabled={!q.trim() || state === "thinking" || !hasClaude}
+            className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-[var(--muted)]" />
+          <button type="submit" disabled={!q.trim() || state === "thinking"}
             className="h-8 px-3 rounded-lg bg-[var(--fg)] text-[var(--bg)] text-[12px] font-semibold disabled:opacity-40 disabled:pointer-events-none hover:opacity-90 transition-opacity">
             {state === "thinking" ? t("nlq_thinking") + "…" : t("nlq_button")}
           </button>
@@ -200,15 +289,10 @@ export function AskModal({ onClose }) {
           </button>
         </form>
         <div className="max-h-[60vh] overflow-y-auto">
-          {!hasClaude && (
-            <div className="p-6 text-[13px] text-[var(--muted)] leading-relaxed">
-              {t("nlq_unavailable")}
-            </div>
-          )}
-          {hasClaude && state === "idle" && <Suggestions samples={samples} onPick={run} />}
-          {hasClaude && state === "thinking" && <Thinking />}
-          {hasClaude && state === "error" && <ErrorBlock err={err} />}
-          {hasClaude && state === "done" && result && <ResultBlock result={result} />}
+          {state === "idle" && <Suggestions samples={samples} onPick={run} />}
+          {state === "thinking" && <Thinking />}
+          {state === "error" && <ErrorBlock err={err} />}
+          {state === "done" && result && <ResultBlock result={result} />}
         </div>
       </div>
     </div>
