@@ -10,7 +10,12 @@ function getHeader(req: any, name: string): string {
   return String(raw || "");
 }
 
-async function resolveOwnerFromAuth(req: any, sbUrl: string, anonKey: string): Promise<string | null> {
+async function resolveOwnerFromAuth(
+  req: any,
+  sbUrl: string,
+  anonKey: string,
+  serviceKey: string,
+): Promise<string | null> {
   const auth = getHeader(req, "authorization");
   if (!auth.toLowerCase().startsWith("bearer ")) return null;
   const token = auth.slice(7).trim();
@@ -21,7 +26,18 @@ async function resolveOwnerFromAuth(req: any, sbUrl: string, anonKey: string): P
   });
   const { data, error } = await userSb.auth.getUser(token);
   if (error || !data.user?.id) return null;
-  return data.user.id;
+  const userId = String(data.user.id);
+  const admin = createClient(sbUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: ownerRow } = await admin
+    .from("wa_owners")
+    .select("id")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  return ownerRow?.id ? String(ownerRow.id) : null;
 }
 
 async function resolveOwnerFromApiKey(req: any, sbUrl: string, serviceKey: string): Promise<string | null> {
@@ -59,7 +75,7 @@ export default async function handler(req: any, res: any) {
   if (!sbUrl || !sbKey) {
     return res.status(503).json({ error: "Supabase env missing" });
   }
-  const ownerFromAuth = sbAnon ? await resolveOwnerFromAuth(req, sbUrl, sbAnon) : null;
+  const ownerFromAuth = sbAnon ? await resolveOwnerFromAuth(req, sbUrl, sbAnon, sbKey) : null;
   const ownerFromApiKey = await resolveOwnerFromApiKey(req, sbUrl, sbKey);
   const ownerId = ownerFromAuth || ownerFromApiKey || getEnv("CFO_OWNER_ID") || DEFAULT_OWNER_ID;
 
