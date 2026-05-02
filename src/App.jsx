@@ -73,15 +73,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [user]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)] flex items-center justify-center">
-        <div className="text-sm text-[var(--muted)]">Loading Anima Sheets...</div>
-      </div>
-    );
-  }
-  if (!user) return <AuthGate onSignIn={signIn} />;
-
   const month = MONTHS[monthIdx];
   const monthLabel = localizedMonthLabel(month.key);
   const net = month.income - month.expenses;
@@ -100,6 +91,15 @@ export default function App() {
     });
     return arr;
   }, [sortKey, sortDir, expenseCats.length, getLang()]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)] flex items-center justify-center">
+        <div className="text-sm text-[var(--muted)]">Loading Anima Sheets...</div>
+      </div>
+    );
+  }
+  if (!user) return <AuthGate onSignIn={signIn} />;
 
   const toggleSort = (key) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
