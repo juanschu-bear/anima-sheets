@@ -3,8 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { t, useLang, getLang } from "./i18n.js";
 import { euro } from "./data.js";
 import { catColor, catLabel } from "./data.js";
-import { tRow, tSheetName } from "./i18n.js";
-import { SHEETS_SEED } from "./data.js";
+import { tRow } from "./i18n.js";
 
 function currentRows(inputRows = null) {
   if (Array.isArray(inputRows) && inputRows.length) {
@@ -24,16 +23,7 @@ function currentRows(inputRows = null) {
       };
     });
   }
-  try {
-    const raw = localStorage.getItem("anima_sheets_state_v3");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.sheets)) {
-        return parsed.sheets.flatMap(s => (s.rows || []).map(r => ({ ...r, sheetId: s.id, sheetName: tSheetName(s) })));
-      }
-    }
-  } catch {}
-  return SHEETS_SEED.flatMap(s => s.rows.map(r => ({ ...r, sheetId: s.id, sheetName: tSheetName(s) })));
+  return [];
 }
 
 function rowDesc(r) { return tRow(r).desc || r.desc || ""; }

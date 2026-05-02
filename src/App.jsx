@@ -4,10 +4,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
-import { t, useLang, setLang, getLang, tRow, localizedMonthLabel } from "./i18n.js";
+import { t, useLang, setLang, getLang, localizedMonthLabel } from "./i18n.js";
 import {
-  MONTHS, CATEGORY_DEFS, CATEGORY_HUE, catColor, catLabel,
-  euro, easeOutCubic, LEDGER,
+  CATEGORY_HUE, catColor, catLabel,
+  euro, easeOutCubic,
 } from "./data.js";
 import { useAuth, AuthGate, ProfileMenu } from "./Auth.jsx";
 import { Spreadsheet } from "./Spreadsheet.jsx";
@@ -88,7 +88,7 @@ export default function App() {
   useLang();
   const [dark, setDark] = useTheme();
   const { user, signIn, signOut, loading } = useAuth();
-  const [monthIdx, setMonthIdx] = useState(MONTHS.length - 1);
+  const [monthIdx, setMonthIdx] = useState(0);
   const [tab, setTab] = useState("dashboard");
   const [sortKey, setSortKey] = useState("amount");
   const [sortDir, setSortDir] = useState("desc");
@@ -109,17 +109,15 @@ export default function App() {
   }, [user]);
 
   const liveModel = useMemo(() => buildLiveDashboardModel(liveCfo.rows), [liveCfo.rows]);
-  const monthsData = liveModel?.months?.length ? liveModel.months : MONTHS;
+  const monthsData = liveModel?.months?.length ? liveModel.months : [];
   const safeMonthIdx = Math.min(monthIdx, Math.max(0, monthsData.length - 1));
-  const month = monthsData[safeMonthIdx];
-  const monthLabel = localizedMonthLabel(month.key);
-  const net = month.income - month.expenses;
+  const month = monthsData[safeMonthIdx] || { key: "", income: 0, expenses: 0 };
+  const monthLabel = month.key ? localizedMonthLabel(month.key) : "No data";
+  const net = (month.income || 0) - (month.expenses || 0);
 
   const expenseCats = liveModel?.categoriesByMonth?.[month.key]?.length
     ? liveModel.categoriesByMonth[month.key]
-    : CATEGORY_DEFS
-        .filter(c => c.kind === "expense" && c.amount > 0)
-        .map(c => ({ ...c, label: catLabel(c.key), color: catColor(c.key) }));
+    : [];
 
   const totalExpenseCat = expenseCats.reduce((s, c) => s + c.amount, 0);
 
@@ -210,7 +208,7 @@ function DashboardView({ monthIdx, setMonthIdx, months, month, monthLabel, headl
         amount: Number(row.totalAmount || 0) * -1,
         cat: row.category || "other",
       }))
-    : LEDGER.slice(0, 5).map(row => ({ date: row.date, desc: tRow(row).desc, amount: row.amount, cat: row.cat }));
+    : [];
   return (
     <>
       <TitleRow monthIdx={monthIdx} setMonthIdx={setMonthIdx} months={months} monthLabel={monthLabel} user={user} />

@@ -40,6 +40,37 @@ async function resolveOwnerFromAuth(
   return ownerRow?.id ? String(ownerRow.id) : null;
 }
 
+async function resolveContactIdsFromAuth(
+  req: any,
+  sbUrl: string,
+  anonKey: string,
+  serviceKey: string,
+): Promise<string[]> {
+  const auth = getHeader(req, "authorization");
+  if (!auth.toLowerCase().startsWith("bearer ")) return [];
+  const token = auth.slice(7).trim();
+  if (!token) return [];
+  const userSb = createClient(sbUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await userSb.auth.getUser(token);
+  if (error || !data.user?.email) return [];
+  const email = String(data.user.email).trim();
+  if (!email) return [];
+  const admin = createClient(sbUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: contactRows } = await admin
+    .from("wa_contacts")
+    .select("id")
+    .eq("email", email)
+    .limit(500);
+  return (contactRows || [])
+    .map((r: any) => String(r?.id || "").trim())
+    .filter(Boolean);
+}
+
 async function resolveOwnerFromApiKey(req: any, sbUrl: string, serviceKey: string): Promise<string | null> {
   const key = getHeader(req, "x-anima-api-key").trim();
   if (!key) return null;
@@ -76,16 +107,19 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: "Supabase env missing" });
   }
   const ownerFromAuth = sbAnon ? await resolveOwnerFromAuth(req, sbUrl, sbAnon, sbKey) : null;
+  const contactIdsFromAuth = sbAnon ? await resolveContactIdsFromAuth(req, sbUrl, sbAnon, sbKey) : [];
   const ownerFromApiKey = await resolveOwnerFromApiKey(req, sbUrl, sbKey);
   const ownerId = ownerFromAuth || ownerFromApiKey || getEnv("CFO_OWNER_ID") || DEFAULT_OWNER_ID;
 
-  const qs = new URLSearchParams({
-    select:
-      "id,owner_id,conversation_id,created_at,transaction_date,merchant,total_amount,currency,vat_amount,category,is_business_expense,tax_relevant,payment_method,free_tags,drive_url",
-    owner_id: `eq.${ownerId}`,
-    order: "created_at.desc",
-    limit: "300",
-  });
+  const select =
+    "id,owner_id,contact_id,conversation_id,created_at,transaction_date,merchant,total_amount,currency,vat_amount,category,is_business_expense,tax_relevant,payment_method,free_tags,drive_url";
+
+  const qs = new URLSearchParams({ select, order: "created_at.desc", limit: "300" });
+  if (contactIdsFromAuth.length > 0) {
+    qs.set("contact_id", `in.(${contactIdsFromAuth.join(",")})`);
+  } else {
+    qs.set("owner_id", `eq.${ownerId}`);
+  }
 
   try {
     const r = await fetch(`${sbUrl}/rest/v1/cfo_transactions?${qs.toString()}`, {
