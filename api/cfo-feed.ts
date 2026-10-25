@@ -125,7 +125,7 @@ export default async function handler(req: any, res: any) {
     const r = await fetch(`${sbUrl}/rest/v1/cfo_transactions?${qs.toString()}`, {
       headers: {
         apikey: sbKey,
-        Authorization: `Bearer ${sbKey}`,
+        ...(!sbKey.startsWith('sb_') ? { Authorization: `Bearer ${sbKey}` } : {}),
       },
     });
     if (!r.ok) {
